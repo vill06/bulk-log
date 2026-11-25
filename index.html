@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>增重飲食紀錄</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="增重飲食紀錄">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#0f172a" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f8fafc" media="(prefers-color-scheme: light)">
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  :root{
+    --background:#f8fafc;--card:#ffffff;--border:#e2e8f0;--card-border:#e2e8f0;
+    --foreground:#0f172a;--muted-foreground:#64748b;
+    --primary:#2563eb;--primary-foreground:#ffffff;--accent:#f1f5f9;
+    --success:#16a34a;--warning:#d97706;--error:#dc2626;
+    --chart-1:#3b82f6;--chart-2:#10b981;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --background:#0f172a;--card:#1e293b;--border:#334155;--card-border:#334155;
+      --foreground:#f1f5f9;--muted-foreground:#94a3b8;
+      --primary:#3b82f6;--primary-foreground:#ffffff;--accent:#283548;
+      --success:#22c55e;--warning:#f59e0b;--error:#ef4444;
+      --chart-1:#60a5fa;--chart-2:#34d399;
+    }
+  }
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans TC",sans-serif;font-size:14px;padding-bottom:env(safe-area-inset-bottom)}
+
+  .card{background:var(--card);border:1px solid var(--border);border-radius:12px}
+  .inp{background:var(--background);border:1px solid var(--border);border-radius:8px;padding:6px 8px;color:var(--foreground);width:100%;font-size:13px}
+  .inp:focus{outline:2px solid var(--primary);outline-offset:-1px}
+  .btn{border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--foreground);white-space:nowrap}
+  .btn:hover{background:var(--accent)}
+  .btn-primary{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+  .btn-primary:hover{background:var(--primary);opacity:.9}
+  .muted{color:var(--muted-foreground)}
+  .bar{height:8px;border-radius:999px;background:var(--border);overflow:hidden}
+  .bar>div{height:100%;border-radius:999px;transition:width .3s}
+  .chip{border:1px solid var(--border);border-radius:999px;padding:2px 10px;font-size:12px}
+  .chip:hover{background:var(--accent)}
+  .row:hover{background:var(--accent)}
+  label.f{display:flex;flex-direction:column;gap:2px;color:var(--muted-foreground)}
+</style>
+</head>
+<body class="bg-[var(--background)] text-[var(--foreground)] antialiased">
+<div class="max-w-6xl mx-auto p-4 space-y-4">
+  <header class="flex flex-wrap items-end justify-between gap-3">
+    <div>
+      <h1 class="text-xl font-semibold">增重飲食紀錄</h1>
+      <p class="text-xs muted">172 cm · 目標 <span id="hdrGoal"></span> kg · 從 Claude 搬過來</p>
+    </div>
+    <div class="flex gap-2">
+      <button class="btn" id="btnExport">⬇ 匯出</button>
+      <button class="btn" id="btnImport">⬆ 匯入</button>
+    </div>
+  </header>
+
+  <div id="toast" class="hidden text-xs p-2 rounded-lg border" style="border-color:var(--success);color:var(--foreground)"></div>
+  <div id="banner" class="hidden text-xs p-2 rounded-lg border" style="border-color:var(--warning);color:var(--foreground)">
+    ⚠️ 目前環境無法自動儲存，關閉頁面後新增的資料會消失，請記得用「匯出」備份。
+  </div>
+
+  <section id="stats" class="grid grid-cols-2 md:grid-cols-4 gap-3"></section>
+
+  <div class="grid lg:grid-cols-5 gap-4">
+    <!-- 左：每日 -->
+    <div class="lg:col-span-3 space-y-4">
+      <div class="card p-4 space-y-3">
+        <div class="flex flex-wrap items-center gap-2">
+          <button class="btn" id="prevDay">◀</button>
+          <input type="date" id="datePick" class="inp" style="width:auto">
+          <button class="btn" id="nextDay">▶</button>
+          <button class="btn" id="todayBtn">今天</button>
+          <button class="btn" id="lastBtn">最後紀錄日</button>
+        </div>
+        <div id="dayTotals" class="space-y-3"></div>
+      </div>
+
+      <div class="card p-4 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-2">
+          <h2 class="font-medium">⚡ 打字估算</h2>
+          <span class="text-xs muted">內建台灣常見食物資料庫，離線即時估算</span>
+        </div>
+        <div class="flex gap-2 text-xs">
+          <select id="qMeal" class="inp" style="width:auto"></select>
+          <input id="qText" class="inp" placeholder="例如：大碗牛肉麵 滷蛋2顆 珍奶大杯半糖" autocomplete="off">
+        </div>
+        <p class="text-xs muted">用空格、逗號或「加」分開；可以寫數量（2顆、半碗、x2）、重量（白飯300g、牛奶400ml）、大小（大杯／小碗）、甜度（半糖／無糖）。開頭寫「午餐：」會自動選餐別。</p>
+        <div id="qPreview" class="space-y-1"></div>
+      </div>
+
+      <div class="card p-4 space-y-3">
+        <div class="flex items-center justify-between">
+          <h2 class="font-medium" id="formTitle">新增餐點</h2>
+          <button class="btn hidden" id="cancelEdit">取消編輯</button>
+        </div>
+        <div>
+          <div class="text-xs muted mb-1">最近吃過（點一下帶入）</div>
+          <div id="recentChips" class="flex flex-wrap gap-1"></div>
+        </div>
+        <form id="addForm" class="grid grid-cols-6 gap-2 text-xs">
+          <label class="f col-span-2 sm:col-span-1">餐別<select id="fMeal" class="inp"></select></label>
+          <label class="f col-span-4 sm:col-span-5">餐點名稱<input id="fName" list="nameList" class="inp" placeholder="例如：牛肉麵、鹹水雞…" required autocomplete="off"></label>
+          <label class="f col-span-3 sm:col-span-1">熱量 kcal<input id="fKcal" type="number" min="0" class="inp" required></label>
+          <label class="f col-span-3 sm:col-span-1">蛋白質 g<input id="fP" type="number" min="0" class="inp"></label>
+          <label class="f col-span-3 sm:col-span-1">碳水 g<input id="fC" type="number" min="0" class="inp"></label>
+          <label class="f col-span-3 sm:col-span-1">脂肪 g<input id="fF" type="number" min="0" class="inp"></label>
+          <div class="col-span-6 sm:col-span-2 flex items-end">
+            <button class="btn btn-primary w-full" type="submit" id="submitBtn">加入所選日期</button>
+          </div>
+        </form>
+        <datalist id="nameList"></datalist>
+      </div>
+
+      <div id="dayEntries" class="card p-4 space-y-3"></div>
+    </div>
+
+    <!-- 右：趨勢 -->
+    <div class="lg:col-span-2 space-y-4">
+      <div class="card p-4 space-y-3">
+        <div class="flex flex-wrap justify-between items-center gap-2">
+          <h2 class="font-medium">體重</h2>
+          <form id="wForm" class="flex gap-2 items-center text-xs">
+            <input id="wVal" type="number" step="0.1" min="30" max="200" placeholder="kg" class="inp" style="width:80px" required>
+            <button class="btn btn-primary" type="submit">記錄到所選日期</button>
+          </form>
+        </div>
+        <div id="wChart"></div>
+        <div id="wList" class="text-xs space-y-1"></div>
+      </div>
+
+      <div class="card p-4 space-y-2">
+        <h2 class="font-medium">近 14 天熱量 <span class="text-xs muted font-normal">（到所選日期，點長條可切換日期）</span></h2>
+        <div id="kChart"></div>
+        <p class="text-xs muted flex flex-wrap gap-3">
+          <span><span style="color:var(--success)">■</span> 達標</span>
+          <span><span style="color:var(--chart-1)">■</span> 未達標</span>
+          <span><span style="color:var(--success)">●</span> 蛋白質達標</span>
+          <span>○ 蛋白質未達標</span>
+        </p>
+      </div>
+
+      <div class="card p-4 space-y-3">
+        <h2 class="font-medium">目標設定</h2>
+        <div class="grid grid-cols-3 gap-2 text-xs">
+          <label class="f">熱量 kcal<input id="sK" type="number" class="inp"></label>
+          <label class="f">蛋白質 g<input id="sP" type="number" class="inp"></label>
+          <label class="f">目標體重 kg<input id="sW" type="number" step="0.1" class="inp"></label>
+        </div>
+        <div class="flex justify-between items-center">
+          <span class="text-xs muted" id="storeInfo"></span>
+          <button class="btn" id="resetBtn">還原成 Claude 原始資料</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Modal -->
+<div id="modal" class="hidden fixed inset-0 z-50 flex items-center justify-center p-4" style="background:rgba(0,0,0,.55)">
+  <div class="w-full max-w-2xl space-y-3 p-4 rounded-xl border" style="background:var(--background);border-color:var(--border)">
+    <div class="flex justify-between items-center">
+      <h3 id="mTitle" class="font-medium"></h3>
+      <button class="btn" id="mClose">✕</button>
+    </div>
+    <div id="mBody" class="space-y-2 text-xs"></div>
+  </div>
+</div>
+
+<script>
+const MEALS = ['早餐','午餐','點心','晚餐','宵夜'];
+const RAW = [["2026-11-05","午餐","奶油吐司2片（含奶油約10g）",250,6,34,10],["2026-11-05","午餐","荷包蛋2顆（油煎）",180,13,1,14],["2026-11-05","午餐","蛋白粉1杯（約1匙30g，加水，蛋白質24g）",120,24,3,2],["2026-11-05","晚餐","大腸臭臭鍋（一人份，含湯與大腸）",420,22,18,28],["2026-11-05","晚餐","魚餃 1份（約6顆）",200,10,25,7],["2026-11-05","晚餐","白飯 450克",675,11,150,1],["2026-11-05","宵夜","雙層四盎司牛肉堡",740,48,42,43],["2026-11-05","宵夜","6塊雞塊",250,14,15,15],["2026-11-05","宵夜","麥當勞中杯可樂 約500ml",200,0,52,0],["2026-11-06","早餐","大冰拿鐵（全脂牛奶）520ml",210,10,16,11],["2026-11-06","早餐","御飯糰（鮪魚）約180g",290,9,47,7],["2026-11-06","午餐","大碗蝦仁炒飯",750,26,95,28],["2026-11-06","午餐","仙草鮮奶（中杯，半糖）",380,10,58,12],["2026-11-06","晚餐","綜合生魚片丼（鮭魚、鮪魚、青甘、玉子燒，醋飯約280g）",970,65,114,27],["2026-11-06","晚餐","生魚片小盤（鮪魚4片、鮭魚1片、白色生魚片2片）",145,24,1,4],["2026-11-06","點心","豆漿 1 杯（蛋白質 19g，以無糖估算）",200,19,9,9],["2026-11-07","午餐","三商巧福牛三寶牛肉麵（一碗）",650,32,85,20],["2026-11-07","午餐","高蛋白豆漿 350ml",180,16,14,6],["2026-11-07","晚餐","白飯 400克",520,10,112,1],["2026-11-07","晚餐","鐵板牛肉（吃1/3，約80克）",200,14,12,11],["2026-11-07","晚餐","炒豬肝（吃1/3，約70克）",130,14,5,6],["2026-11-07","晚餐","薑絲大腸（吃1/3，約80克）",170,9,3,13],["2026-11-07","宵夜","鹹水雞 雞腿肉 1份（約130g，含調味油）",350,30,3,24],["2026-11-07","宵夜","鹹水雞 雞心 1份（約60g）",110,9,1,8],["2026-11-07","宵夜","鹹水雞 貢丸 1份（約3顆）",130,7,5,9],["2026-11-07","宵夜","鹹水雞 魷魚 1份（約80g）",80,13,3,2],["2026-11-07","宵夜","鹹水雞 筍片＋醃小黃瓜",60,3,9,2],["2026-11-08","午餐","煙燻鮭魚三明治（酸種麵包，含起司、醬）",620,27,65,28],["2026-11-08","午餐","炸薯角 1碗（約200g）",450,6,55,23],["2026-11-08","午餐","冰拿鐵 約400ml（有加糖）",215,8,27,8],["2026-11-08","晚餐","漢堡王 勁濃安格斯牛肉堡",800,40,50,48],["2026-11-08","晚餐","漢堡王 BK 雞塊 4 塊",174,8,10,11],["2026-11-08","晚餐","漢堡王 洋蔥圈 1 份",320,4,38,17],["2026-11-08","晚餐","中杯百事可樂 約500ml",200,0,50,0],["2026-11-09","早餐","豬肉滿福堡",430,19,40,21],["2026-11-09","早餐","加蛋 1 顆",90,6,1,7],["2026-11-09","早餐","薯餅 1 份",150,2,15,9],["2026-11-09","早餐","四塊雞 4 塊",190,10,12,12],["2026-11-09","早餐","冰炫風（標準杯）",390,8,60,13],["2026-11-09","早餐","大冰拿（大杯，加糖）",250,10,38,8],["2026-11-09","晚餐","軟蛋醬咖哩牛肉飯（含起司醬、花椰菜、紅蘿蔔）",980,41,120,37],["2026-11-09","晚餐","加飯（約150g）",210,4,46,1],["2026-11-09","晚餐","加牛肉（約60g）",150,15,2,10],["2026-11-09","晚餐","蛋白粉1杯（約1匙30g，加全脂牛奶約300ml）",310,34,18,13],["2026-11-10","早餐","7-11蔥鹽燒肉飯糰",280,9,38,9],["2026-11-10","早餐","蜂蜜水 600ml",150,0,38,0],["2026-11-10","早餐","芝麻饅頭 2個",280,8,46,6]];
+const SEED = {
+  settings: { kcalTarget: 2700, proteinTarget: 130, goalWeight: 70 },
+  weights: [{date:'2026-11-05',weight:65.4},{date:'2026-11-06',weight:66.3},{date:'2026-11-07',weight:66.6}],
+  entries: RAW.map((r,i)=>({id:'claude'+i,date:r[0],meal:r[1],name:r[2],kcal:r[3],protein:r[4],carbs:r[5],fat:r[6],source:'ai'}))
+};
+const KEY = 'bulk-log-v1';
+
+// ---------- utils ----------
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const uid = () => Math.random().toString(36).slice(2,10) + Date.now().toString(36);
+const iso = d => { const z = new Date(d.getTime() - d.getTimezoneOffset()*60000); return z.toISOString().slice(0,10); };
+const addDays = (s,n) => { const d = new Date(s+'T00:00:00'); d.setDate(d.getDate()+n); return iso(d); };
+const md = s => `${+s.slice(5,7)}/${+s.slice(8,10)}`;
+const WD = ['日','一','二','三','四','五','六'];
+const wd = s => WD[new Date(s+'T00:00:00').getDay()];
+const r1 = n => Math.round(n*10)/10;
+const clone = o => JSON.parse(JSON.stringify(o));
+
+let canStore = true;
+try { localStorage.setItem('__t','1'); localStorage.removeItem('__t'); } catch(e) { canStore = false; }
+
+function normalize(o){
+  return {
+    settings: Object.assign({}, SEED.settings, o.settings || {}),
+    weights: (o.weights||[]).map(w=>({date:w.date, weight:+w.weight})).filter(w=>w.date && w.weight>0),
+    entries: (o.entries||[]).filter(e=>e && e.date).map(e=>({
+      id: e.id || uid(), date: e.date, meal: MEALS.includes(e.meal) ? e.meal : '點心',
+      name: String(e.name||''), kcal: +e.kcal||0, protein: +e.protein||0, carbs: +e.carbs||0, fat: +e.fat||0,
+      source: e.source || 'manual', ...(e.createdAt ? {createdAt: e.createdAt} : {})
+    })),
+    applied: Array.isArray(o.applied) ? o.applied : []
+  };
+}
+function load(){
+  if (canStore) { try { const s = localStorage.getItem(KEY); if (s) return normalize(JSON.parse(s)); } catch(e){} }
+  return clone(SEED);
+}
+function save(){
+  if (canStore) { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) { canStore = false; } }
+  render();
+}
+
+// ===== 聊天收件匣 =====
+// 在聊天裡請 Antigravity 估算的餐點／體重會被加到這裡。
+// 重新整理頁面時自動匯入，每筆只匯入一次（之後刪掉也不會再跑回來）。
+const INBOX = {
+  entries: [
+    // {id:'ag-2026-11-25-1', date:'2026-11-25', meal:'午餐', name:'…', kcal:0, protein:0, carbs:0, fat:0},
+    {id:'ag-2026-11-25-1', date:'2026-11-25', meal:'晚餐', name:'鮑魚 6顆', kcal:190, protein:30, carbs:10, fat:2},
+    {id:'ag-2026-11-25-2', date:'2026-11-25', meal:'晚餐', name:'鮭魚握壽司 4貫（飯多肉大塊）', kcal:440, protein:28, carbs:48, fat:15},
+    {id:'ag-2026-11-25-3', date:'2026-11-25', meal:'晚餐', name:'鮪魚握壽司 3貫（飯多肉大塊）', kcal:270, protein:24, carbs:36, fat:3},
+    {id:'ag-2026-11-25-4', date:'2026-11-25', meal:'晚餐', name:'海鱺握壽司 1貫（飯多肉大塊）', kcal:105, protein:7, carbs:12, fat:3},
+    {id:'ag-2026-11-25-5', date:'2026-11-25', meal:'晚餐', name:'青甘握壽司 1貫（飯多肉大塊）', kcal:115, protein:7, carbs:12, fat:4},
+  ],
+  weights: [
+    // {id:'agw-2026-11-25', date:'2026-11-25', weight:66.0},
+  ]
+};
+function applyInbox(){
+  const done = new Set(S.applied || []), ids = new Set(S.entries.map(e=>e.id)); let n = 0;
+  INBOX.entries.forEach(e=>{
+    if (done.has(e.id)) return; done.add(e.id);
+    if (!ids.has(e.id)) { S.entries.push(normalize({entries:[{source:'antigravity', ...e}]}).entries[0]); n++; }
+  });
+  INBOX.weights.forEach(w=>{
+    if (done.has(w.id)) return; done.add(w.id);
+    S.weights = S.weights.filter(x=>x.date!==w.date); S.weights.push({date:w.date, weight:+w.weight}); n++;
+  });
+  S.applied = [...done];
+  return n;
+}
+
+let S = load();
+let sel = iso(new Date());
+let editingId = null;
+const inboxCount = applyInbox();
+if (inboxCount) {
+  if (canStore) { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch(e) {} }
+  setTimeout(()=>{ const t = $('toast'); t.textContent = `✓ 已從聊天匯入 ${inboxCount} 筆紀錄`; t.classList.remove('hidden'); setTimeout(()=>t.classList.add('hidden'), 6000); });
+}
+
+const totals = d => S.entries.filter(e=>e.date===d).reduce((a,e)=>({kcal:a.kcal+e.kcal,protein:a.protein+e.protein,carbs:a.carbs+e.carbs,fat:a.fat+e.fat}),{kcal:0,protein:0,carbs:0,fat:0});
+const sortedWeights = () => [...S.weights].sort((a,b)=>a.date.localeCompare(b.date));
+const loggedDays = () => [...new Set(S.entries.map(e=>e.date))].sort();
+
+function defaultMeal(){ const h = new Date().getHours(); return h<10?'早餐':h<14?'午餐':h<17?'點心':h<21?'晚餐':'宵夜'; }
+
+function confirm2(btn, fn){
+  if (btn.dataset.armed) { delete btn.dataset.armed; btn.textContent = btn.dataset.orig; fn(); return; }
+  btn.dataset.orig = btn.textContent; btn.dataset.armed = '1'; btn.textContent = '再按一次確認';
+  setTimeout(()=>{ if (btn.dataset.armed){ delete btn.dataset.armed; btn.textContent = btn.dataset.orig; } }, 3000);
+}
+
+// ---------- render ----------
+function statCard(label, value, sub, pct){
+  return `<div class="card p-3 space-y-1">
+    <div class="text-xs muted">${label}</div>
+    <div class="text-lg font-semibold tabular-nums">${value}</div>
+    ${pct!=null?`<div class="bar"><div style="width:${Math.max(0,Math.min(100,pct))}%;background:var(--chart-2)"></div></div>`:''}
+    <div class="text-xs muted">${sub}</div></div>`;
+}
+function renderStats(){
+  const ws = sortedWeights(), goal = S.settings.goalWeight;
+  const last = ws[ws.length-1], first = ws[0];
+  const full = loggedDays().filter(d=>totals(d).kcal>=1000).slice(-7);
+  const avg = k => full.length ? Math.round(full.reduce((a,d)=>a+totals(d)[k],0)/full.length) : null;
+  const ak = avg('kcal'), ap = avg('protein');
+  let html = '';
+  html += statCard('目前體重', last ? `${last.weight} kg` : '—', last ? `${md(last.date)} 量測${first && first!==last ? ` · 比起 ${md(first.date)} ${last.weight-first.weight>=0?'+':''}${r1(last.weight-first.weight)} kg` : ''}` : '還沒有紀錄');
+  const pct = (last && first && goal>first.weight) ? (last.weight-first.weight)/(goal-first.weight)*100 : null;
+  html += statCard('距離目標', last ? `${r1(Math.max(0,goal-last.weight))} kg` : '—', `目標 ${goal} kg`, pct);
+  html += statCard('平均熱量', ak!=null ? `${ak} kcal` : '—', `最近 ${full.length} 個完整紀錄日 · 目標 ${S.settings.kcalTarget}`, ak!=null ? ak/S.settings.kcalTarget*100 : null);
+  html += statCard('平均蛋白質', ap!=null ? `${ap} g` : '—', `約 ${last?r1((ap||0)/last.weight):'—'} g/kg · 目標 ${S.settings.proteinTarget}`, ap!=null ? ap/S.settings.proteinTarget*100 : null);
+  $('stats').innerHTML = html;
+}
+
+function progress(label, val, target, unit){
+  const pct = target ? val/target*100 : 0, ok = val >= target;
+  return `<div class="space-y-1">
+    <div class="flex justify-between text-xs"><span>${label}</span>
+      <span class="tabular-nums"><b>${Math.round(val)}</b> / ${target} ${unit}
+      <span class="muted">· ${ok ? '✅ 達標' : `還差 ${Math.round(target-val)} ${unit}`}</span></span></div>
+    <div class="bar"><div style="width:${Math.min(100,pct)}%;background:${ok?'var(--success)':'var(--chart-1)'}"></div></div></div>`;
+}
+function renderDay(){
+  $('datePick').value = sel;
+  const t = totals(sel);
+  const kc = t.carbs*4 + t.protein*4 + t.fat*9 || 1;
+  $('dayTotals').innerHTML = `
+    <div class="text-sm font-medium">${md(sel)}（${wd(sel)}）${sel===iso(new Date())?'<span class="text-xs muted">今天</span>':''}</div>
+    ${progress('熱量', t.kcal, S.settings.kcalTarget, 'kcal')}
+    ${progress('蛋白質', t.protein, S.settings.proteinTarget, 'g')}
+    <div class="text-xs muted tabular-nums">碳水 ${t.carbs} g（${Math.round(t.carbs*4/kc*100)}%） · 脂肪 ${t.fat} g（${Math.round(t.fat*9/kc*100)}%） · 蛋白質 ${Math.round(t.protein*4/kc*100)}%</div>`;
+}
+function renderEntries(){
+  const list = S.entries.filter(e=>e.date===sel);
+  if (!list.length) {
+    $('dayEntries').innerHTML = `<h2 class="font-medium">當日餐點</h2><p class="text-xs muted">這天還沒有紀錄。</p>`;
+    return;
+  }
+  let html = `<h2 class="font-medium">當日餐點 <span class="text-xs muted font-normal">${list.length} 項</span></h2>`;
+  MEALS.forEach(m=>{
+    const items = list.filter(e=>e.meal===m); if (!items.length) return;
+    const sk = items.reduce((a,e)=>a+e.kcal,0), sp = items.reduce((a,e)=>a+e.protein,0);
+    html += `<div><div class="flex justify-between text-xs muted border-b pb-1 mb-1" style="border-color:var(--border)"><span>${m}</span><span class="tabular-nums">${sk} kcal · P ${sp} g</span></div>`;
+    items.forEach(e=>{
+      html += `<div class="row flex items-center gap-2 py-1 px-1 rounded text-xs ${editingId===e.id?'ring-1':''}" style="--tw-ring-color:var(--primary)">
+        <span class="flex-1 min-w-0">${esc(e.name)}</span>
+        <span class="tabular-nums whitespace-nowrap">${e.kcal} kcal</span>
+        <span class="tabular-nums muted whitespace-nowrap hidden sm:inline">P${e.protein} C${e.carbs} F${e.fat}</span>
+        <button class="muted hover:opacity-70 px-1" title="編輯" data-edit="${e.id}">✎</button>
+        <button class="muted hover:opacity-70 px-1" title="刪除" data-del="${e.id}">✕</button></div>`;
+    });
+    html += `</div>`;
+  });
+  $('dayEntries').innerHTML = html;
+}
+
+function renderWeight(){
+  const ws = sortedWeights(), goal = S.settings.goalWeight;
+  const W = 400, H = 170, L = 34, R = 10, T = 12, B = 22;
+  if (!ws.length) { $('wChart').innerHTML = '<p class="text-xs muted">還沒有體重紀錄。</p>'; $('wList').innerHTML=''; return; }
+  const t0 = new Date(ws[0].date+'T00:00:00').getTime();
+  const day = d => (new Date(d+'T00:00:00').getTime()-t0)/864e5;
+  const span = Math.max(1, day(ws[ws.length-1].date));
+  const vals = ws.map(w=>w.weight);
+  const lo = Math.floor(Math.min(...vals, goal) - 0.5), hi = Math.ceil(Math.max(...vals, goal) + 0.5);
+  const x = d => ws.length===1 ? (L+W-R)/2 : L + day(d)/span*(W-L-R);
+  const y = v => T + (hi-v)/(hi-lo)*(H-T-B);
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="w-full" style="font-size:11px">`;
+  const step = (hi-lo) > 8 ? 2 : 1;
+  for (let v = lo; v <= hi; v += step) s += `<line x1="${L}" x2="${W-R}" y1="${y(v)}" y2="${y(v)}" style="stroke:var(--border)"/><text x="${L-6}" y="${y(v)+4}" text-anchor="end" style="fill:var(--muted-foreground)">${v}</text>`;
+  s += `<line x1="${L}" x2="${W-R}" y1="${y(goal)}" y2="${y(goal)}" stroke-dasharray="5 4" style="stroke:var(--success);stroke-width:1.5"/><text x="${W-R}" y="${y(goal)-4}" text-anchor="end" style="fill:var(--success)">目標 ${goal}</text>`;
+  s += `<polyline fill="none" style="stroke:var(--chart-1);stroke-width:2" points="${ws.map(w=>`${x(w.date)},${y(w.weight)}`).join(' ')}"/>`;
+  ws.forEach(w=>{ s += `<circle cx="${x(w.date)}" cy="${y(w.weight)}" r="3.5" style="fill:var(--chart-1)"><title>${w.date}：${w.weight} kg</title></circle>`; });
+  s += `<text x="${L}" y="${H-6}" style="fill:var(--muted-foreground)">${md(ws[0].date)}</text>`;
+  if (ws.length>1) s += `<text x="${W-R}" y="${H-6}" text-anchor="end" style="fill:var(--muted-foreground)">${md(ws[ws.length-1].date)}</text>`;
+  s += `</svg>`;
+  $('wChart').innerHTML = s;
+  $('wList').innerHTML = ws.slice(-5).reverse().map(w=>`<div class="row flex justify-between items-center px-1 rounded"><span class="muted">${w.date}（${wd(w.date)}）</span><span class="flex items-center gap-2"><b class="tabular-nums">${w.weight} kg</b><button class="muted hover:opacity-70" data-wdel="${w.date}" title="刪除">✕</button></span></div>`).join('');
+}
+
+function renderK(){
+  const n = 14, W = 420, H = 160, L = 8, R = 8, T = 14, B = 34;
+  const ds = [...Array(n)].map((_,i)=>addDays(sel, i-n+1));
+  const vs = ds.map(totals), KT = S.settings.kcalTarget, PT = S.settings.proteinTarget;
+  const max = Math.max(KT*1.25, ...vs.map(v=>v.kcal));
+  const bw = (W-L-R)/n, base = H-B;
+  const y = v => base - v/max*(base-T);
+  let s = `<svg viewBox="0 0 ${W} ${H}" class="w-full" style="font-size:11px">`;
+  s += `<line x1="${L}" x2="${W-R}" y1="${y(KT)}" y2="${y(KT)}" stroke-dasharray="5 4" style="stroke:var(--muted-foreground)"/><text x="${L}" y="${y(KT)-4}" style="fill:var(--muted-foreground)">目標 ${KT}</text>`;
+  ds.forEach((d,i)=>{
+    const v = vs[i], bx = L+i*bw, w = bw*0.68, x0 = bx+(bw-w)/2;
+    s += `<rect data-d="${d}" x="${bx}" y="${T}" width="${bw}" height="${H-T}" fill="transparent" style="cursor:pointer"><title>${d}</title></rect>`;
+    if (v.kcal>0) {
+      s += `<rect data-d="${d}" x="${x0}" y="${y(v.kcal)}" width="${w}" height="${base-y(v.kcal)}" rx="2" style="fill:${v.kcal>=KT?'var(--success)':'var(--chart-1)'};cursor:pointer;${d===sel?'stroke:var(--foreground);stroke-width:1.5':''}"><title>${d}：${v.kcal} kcal · 蛋白質 ${v.protein} g</title></rect>`;
+      s += `<circle data-d="${d}" cx="${bx+bw/2}" cy="${base+8}" r="3" style="${v.protein>=PT?'fill:var(--success)':'fill:none;stroke:var(--muted-foreground)'}"/>`;
+    } else if (d===sel) {
+      s += `<line x1="${x0}" x2="${x0+w}" y1="${base}" y2="${base}" style="stroke:var(--foreground);stroke-width:2"/>`;
+    }
+    if (i%2===(n-1)%2) s += `<text x="${bx+bw/2}" y="${H-6}" text-anchor="middle" style="fill:${d===sel?'var(--foreground)':'var(--muted-foreground)'}">${md(d)}</text>`;
+  });
+  s += `<line x1="${L}" x2="${W-R}" y1="${base}" y2="${base}" style="stroke:var(--border)"/></svg>`;
+  $('kChart').innerHTML = s;
+}
+
+function renderForm(){
+  const names = [...new Set(S.entries.map(e=>e.name))];
+  $('nameList').innerHTML = names.map(n=>`<option value="${esc(n)}">`).join('');
+  const recent = []; const seen = new Set();
+  for (let i = S.entries.length-1; i>=0 && recent.length<8; i--) { const e = S.entries[i]; if (!seen.has(e.name)) { seen.add(e.name); recent.push(e); } }
+  $('recentChips').innerHTML = recent.map(e=>`<button type="button" class="chip" data-chip="${e.id}">${esc(e.name.length>16?e.name.slice(0,16)+'…':e.name)}</button>`).join('');
+  $('formTitle').textContent = editingId ? '編輯餐點' : '新增餐點';
+  $('submitBtn').textContent = editingId ? '更新' : '加入所選日期';
+  $('cancelEdit').classList.toggle('hidden', !editingId);
+}
+
+function render(){
+  $('hdrGoal').textContent = S.settings.goalWeight;
+  $('banner').classList.toggle('hidden', canStore);
+  $('storeInfo').textContent = canStore ? '✓ 自動儲存在這個瀏覽器' : '⚠ 無法自動儲存';
+  renderStats(); renderDay(); renderEntries(); renderWeight(); renderK(); renderForm();
+}
+
+// ---------- events ----------
+$('fMeal').innerHTML = MEALS.map(m=>`<option>${m}</option>`).join('');
+$('fMeal').value = defaultMeal();
+$('sK').value = S.settings.kcalTarget; $('sP').value = S.settings.proteinTarget; $('sW').value = S.settings.goalWeight;
+
+$('prevDay').onclick = () => { sel = addDays(sel,-1); render(); };
+$('nextDay').onclick = () => { sel = addDays(sel,1); render(); };
+$('todayBtn').onclick = () => { sel = iso(new Date()); render(); };
+$('lastBtn').onclick = () => { const d = loggedDays(); if (d.length) { sel = d[d.length-1]; render(); } };
+$('datePick').onchange = e => { if (e.target.value) { sel = e.target.value; render(); } };
+$('kChart').onclick = e => { const t = e.target.closest('[data-d]'); if (t) { sel = t.dataset.d; render(); } };
+
+function fillForm(e, withMeal){
+  $('fName').value = e.name; $('fKcal').value = e.kcal; $('fP').value = e.protein; $('fC').value = e.carbs; $('fF').value = e.fat;
+  if (withMeal) $('fMeal').value = e.meal;
+}
+function clearForm(){ $('addForm').reset(); $('fMeal').value = defaultMeal(); editingId = null; }
+
+$('recentChips').onclick = ev => { const b = ev.target.closest('[data-chip]'); if (!b) return; const e = S.entries.find(x=>x.id===b.dataset.chip); if (e) fillForm(e,false); };
+$('fName').addEventListener('change', () => {
+  const v = $('fName').value.trim(); if (!v) return;
+  for (let i=S.entries.length-1;i>=0;i--) if (S.entries[i].name===v) { fillForm(S.entries[i], false); break; }
+});
+$('addForm').onsubmit = ev => {
+  ev.preventDefault();
+  const data = { meal: $('fMeal').value, name: $('fName').value.trim(), kcal: +$('fKcal').value||0, protein: +$('fP').value||0, carbs: +$('fC').value||0, fat: +$('fF').value||0 };
+  if (!data.name) return;
+  if (editingId) { const e = S.entries.find(x=>x.id===editingId); if (e) Object.assign(e, data); }
+  else S.entries.push({ id: uid(), date: sel, ...data, source: 'manual', createdAt: new Date().toISOString() });
+  clearForm(); save();
+};
+$('cancelEdit').onclick = () => { clearForm(); render(); };
+$('dayEntries').onclick = ev => {
+  const ed = ev.target.closest('[data-edit]'), dl = ev.target.closest('[data-del]');
+  if (ed) { const e = S.entries.find(x=>x.id===ed.dataset.edit); if (e) { editingId = e.id; fillForm(e,true); render(); $('fName').focus(); } }
+  if (dl) { S.entries = S.entries.filter(x=>x.id!==dl.dataset.del); if (editingId===dl.dataset.del) clearForm(); save(); }
+};
+
+$('wForm').onsubmit = ev => {
+  ev.preventDefault(); const v = +$('wVal').value; if (!(v>0)) return;
+  S.weights = S.weights.filter(w=>w.date!==sel); S.weights.push({date: sel, weight: r1(v)});
+  $('wVal').value = ''; save();
+};
+$('wList').onclick = ev => { const b = ev.target.closest('[data-wdel]'); if (b) { S.weights = S.weights.filter(w=>w.date!==b.dataset.wdel); save(); } };
+
+[['sK','kcalTarget'],['sP','proteinTarget'],['sW','goalWeight']].forEach(([id,k])=>{
+  $(id).addEventListener('change', e => { const v = +e.target.value; if (v>0) { S.settings[k] = v; save(); } });
+});
+$('resetBtn').onclick = e => confirm2(e.currentTarget, () => {
+  S = clone(SEED); applyInbox(); $('sK').value = S.settings.kcalTarget; $('sP').value = S.settings.proteinTarget; $('sW').value = S.settings.goalWeight; clearForm(); save();
+});
+
+// ---------- modal: export / import ----------
+const openModal = (title, html) => { $('mTitle').textContent = title; $('mBody').innerHTML = html; $('modal').classList.remove('hidden'); };
+const closeModal = () => $('modal').classList.add('hidden');
+$('mClose').onclick = closeModal;
+$('modal').onclick = e => { if (e.target.id==='modal') closeModal(); };
+
+function download(name, text, type){
+  try { const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text],{type})); a.download = name; document.body.appendChild(a); a.click(); a.remove(); }
+  catch(e) { alert('無法下載，請改用「複製」。'); }
+}
+function toCSV(){
+  const q = v => /[",\n]/.test(String(v)) ? `"${String(v).replace(/"/g,'""')}"` : v;
+  const rows = [['日期','餐別','餐點','熱量(kcal)','蛋白質(g)','碳水(g)','脂肪(g)','來源','建立時間','id']]
+    .concat([...S.entries].sort((a,b)=>a.date.localeCompare(b.date)).map(e=>[e.date,e.meal,e.name,e.kcal,e.protein,e.carbs,e.fat,e.source,e.createdAt||'',e.id]));
+  return '\ufeff' + rows.map(r=>r.map(q).join(',')).join('\r\n');
+}
+$('btnExport').onclick = () => {
+  const json = JSON.stringify(S, null, 2);
+  openModal('匯出資料', `
+    <p class="muted">格式和 Claude 匯出的 JSON 相容（settings / weights / entries），可以再匯入回來。</p>
+    <textarea id="expTxt" class="inp font-mono" rows="12" readonly>${esc(json)}</textarea>
+    <div class="flex flex-wrap gap-2">
+      <button class="btn btn-primary" id="cpBtn">複製 JSON</button>
+      <button class="btn" id="dlJson">下載 JSON</button>
+      <button class="btn" id="dlCsv">下載餐點 CSV</button>
+    </div>`);
+  $('cpBtn').onclick = async () => {
+    const ta = $('expTxt');
+    try { await navigator.clipboard.writeText(ta.value); } catch(e) { ta.select(); document.execCommand('copy'); }
+    $('cpBtn').textContent = '✓ 已複製';
+  };
+  $('dlJson').onclick = () => download(`增重飲食紀錄_${iso(new Date())}.json`, json, 'application/json');
+  $('dlCsv').onclick = () => download(`增重飲食紀錄_餐點_${iso(new Date())}.csv`, toCSV(), 'text/csv');
+};
+$('btnImport').onclick = () => {
+  openModal('匯入資料', `
+    <p class="muted">選擇 JSON 檔或貼上 JSON 內容（同 Claude 匯出格式）。</p>
+    <input type="file" id="impFile" accept=".json,application/json" class="text-xs">
+    <textarea id="impTxt" class="inp font-mono" rows="10" placeholder='{"settings":{...},"weights":[...],"entries":[...]}'></textarea>
+    <p id="impMsg" class="muted"></p>
+    <div class="flex flex-wrap gap-2">
+      <button class="btn btn-primary" id="impMerge">合併（保留現有資料）</button>
+      <button class="btn" id="impReplace">取代全部</button>
+    </div>`);
+  $('impFile').onchange = e => { const f = e.target.files[0]; if (f) f.text().then(t => $('impTxt').value = t); };
+  const parse = () => { try { const o = normalize(JSON.parse($('impTxt').value)); return o; } catch(e) { $('impMsg').textContent = '❌ JSON 格式錯誤：' + e.message; return null; } };
+  $('impMerge').onclick = () => {
+    const o = parse(); if (!o) return;
+    const ids = new Set(S.entries.map(e=>e.id)); let added = 0;
+    o.entries.forEach(e=>{ if (!ids.has(e.id)) { S.entries.push(e); added++; } });
+    o.weights.forEach(w=>{ S.weights = S.weights.filter(x=>x.date!==w.date); S.weights.push(w); });
+    save(); $('impMsg').textContent = `✓ 新增 ${added} 筆餐點、更新 ${o.weights.length} 筆體重`;
+  };
+  $('impReplace').onclick = e => confirm2(e.currentTarget, () => {
+    const o = parse(); if (!o) return; S = o; applyInbox();
+    $('sK').value = S.settings.kcalTarget; $('sP').value = S.settings.proteinTarget; $('sW').value = S.settings.goalWeight;
+    clearForm(); save(); $('impMsg').textContent = `✓ 已取代：${S.entries.length} 筆餐點、${S.weights.length} 筆體重`;
+  });
+};
+
+// ===== 打字估算：內建食物資料庫 =====
+// [別名|別名…, 單位, kcal, 蛋白質, 碳水, 脂肪, 選項]
+// 選項：g200＝每份 200 克、ml500＝每份 500 毫升、sM／sL＝預設中杯／大杯（可依大小調整）、d＝含糖飲料（可依甜度調整）
+const FOODS = [
+  // 主食
+  ['白飯|飯','碗',290,5,64,1,'g200 sM'], ['糙米飯|五穀飯','碗',300,6,62,2,'g200 sM'], ['地瓜','條',230,2,54,0,'g200'],
+  ['吐司','片',110,4,20,2], ['奶油吐司|厚片','片',150,3,18,7], ['饅頭','個',220,7,45,1], ['芝麻饅頭','個',150,4,24,4],
+  ['燕麥','份',150,5,27,3,'g40'], ['麵包','個',300,8,45,10], ['可頌','個',230,5,26,12],
+  // 蛋豆肉
+  ['滷蛋','顆',80,7,1,6], ['茶葉蛋','顆',75,7,1,5], ['荷包蛋|煎蛋|加蛋|蛋','顆',90,7,1,7], ['水煮蛋|白煮蛋|溏心蛋|溫泉蛋','顆',72,7,0,5],
+  ['雞胸肉|雞胸','份',120,24,0,2,'g100'], ['舒肥雞|即食雞胸','包',115,24,2,2], ['雞腿','隻',300,28,2,20], ['雞肉','份',170,25,0,7,'g100'],
+  ['雞排','片',600,35,35,35], ['鹽酥雞','份',500,25,25,33], ['炸雞','塊',300,20,10,20],
+  ['牛肉','份',250,26,0,16,'g100'], ['牛排','份',450,45,0,30,'g200'], ['豬肉','份',280,20,0,22,'g100'], ['豬排|炸豬排','片',450,25,25,28],
+  ['燒肉','份',300,20,2,24,'g100'], ['鮭魚','片',200,20,0,13,'g100'], ['鮪魚罐頭','罐',150,25,0,5], ['豆腐','塊',85,8,3,5,'g100'],
+  ['熱狗','根',120,5,2,10], ['培根','片',45,3,0,4], ['生魚片','片',25,4,0,1], ['壽司','貫',50,2,8,1],
+  // 奶、飲料
+  ['全脂牛奶|鮮奶|牛奶','杯',150,8,11,8,'ml240'], ['低脂牛奶|低脂鮮奶','杯',110,8,12,4,'ml240'],
+  ['無糖豆漿','杯',150,14,6,7,'ml400'], ['高蛋白豆漿','瓶',180,16,14,6,'ml350'], ['豆漿','杯',210,13,25,6,'ml400'],
+  ['蛋白粉|乳清|高蛋白','匙',120,24,3,2], ['拿鐵|冰拿','杯',190,10,15,10,'ml360 sM'], ['美式|黑咖啡','杯',10,1,1,0],
+  ['珍珠奶茶|珍奶|波霸奶茶|珍珠鮮奶','杯',500,4,80,17,'sL d'], ['鮮奶茶|奶茶','杯',300,4,45,12,'sL d'],
+  ['仙草鮮奶|仙草奶凍','杯',380,10,58,12,'sM d'], ['紅茶|綠茶|青茶|烏龍|多多綠|冬瓜茶','杯',148,0,37,0,'sL d'],
+  ['可樂|百事|汽水|雪碧','杯',200,0,52,0,'ml500 sM'], ['蜂蜜水','杯',150,0,38,0,'ml600'], ['運動飲料|寶礦力','瓶',150,0,37,0,'ml600'],
+  ['果汁|柳橙汁','杯',140,1,33,0,'ml300'], ['啤酒','罐',145,1,11,0,'ml330'], ['優格|優酪乳','杯',150,6,22,4], ['水|無糖茶','杯',0,0,0,0],
+  // 水果、零食
+  ['香蕉','根',100,1,26,0], ['蘋果','顆',120,0,31,0], ['芭樂','顆',80,2,18,1], ['堅果','份',180,5,6,15,'g30'],
+  ['起司片|起司','片',70,4,1,6], ['蛋糕','片',350,5,40,18], ['甜甜圈','個',250,4,30,13], ['冰淇淋','球',150,3,17,8], ['洋芋片','包',300,3,30,19],
+  // 超商
+  ['飯糰|御飯糰','個',230,6,40,5], ['三明治','個',300,12,33,13], ['大亨堡','個',350,12,35,18], ['關東煮','份',250,15,20,12],
+  ['涼麵','盒',450,13,65,15], ['沙拉','盒',100,5,10,4], ['微波義大利麵','盒',550,18,70,20],
+  ['便當|排骨便當|雞腿便當|控肉便當','個',800,30,100,28],
+  // 台式、小吃
+  ['牛肉麵','碗',650,32,85,20,'sM'], ['陽春麵','碗',350,10,60,7,'sM'], ['乾麵|麻醬麵','碗',450,12,65,15,'sM'], ['炒麵','盤',650,18,85,25,'sM'],
+  ['炒飯','盤',650,20,85,24,'sM'], ['滷肉飯|魯肉飯','碗',400,10,55,15,'sM'], ['雞肉飯','碗',350,15,60,5,'sM'],
+  ['水餃','顆',50,3,6,2], ['鍋貼','顆',60,3,6,3], ['小籠包','顆',55,3,5,3], ['蛋餅','份',250,8,30,11], ['起司蛋餅','份',330,12,30,17],
+  ['蘿蔔糕','份',250,4,35,10], ['鐵板麵','份',500,12,70,18], ['肉粽|粽子','顆',450,15,55,18], ['臭豆腐','份',450,20,25,30],
+  ['蚵仔煎','份',450,12,50,22], ['麵線|大腸麵線','碗',350,10,55,10,'sM'], ['鹹水雞','份',400,35,15,22], ['滷味','份',400,25,40,15],
+  ['臭臭鍋','份',500,25,30,30], ['火鍋|麻辣鍋|小火鍋','份',650,35,40,38], ['拉麵','碗',700,28,80,28,'sM'],
+  ['生魚片丼|海鮮丼|散壽司','碗',650,38,90,14,'sM'], ['丼飯|牛丼|豬排丼','碗',750,28,100,25,'sM'], ['咖哩飯|咖哩','盤',750,22,100,28,'sM'],
+  ['義大利麵','盤',650,20,85,25], ['披薩','片',280,12,30,12], ['燒賣','顆',50,3,4,3], ['大腸','份',250,10,3,22],
+  // 速食
+  ['薯條|薯角','份',330,4,43,16,'sM'], ['薯餅','片',150,2,15,9], ['洋蔥圈','份',320,4,38,17], ['雞塊|麥克雞塊|塊雞','塊',47,3,3,3],
+  ['大麥克','個',550,26,45,30], ['雙層四盎司牛肉堡|雙層四盎司','個',740,48,42,43], ['四盎司牛肉堡','個',520,30,40,27],
+  ['雙層牛肉吉事堡|吉事堡','個',450,25,35,23], ['麥香雞','個',400,15,40,19], ['麥香魚','個',330,14,38,14], ['麥脆雞|炸雞腿','塊',350,22,14,23],
+  ['滿福堡|豬肉滿福堡','個',300,14,29,14], ['華堡','個',650,28,50,38], ['安格斯','個',800,40,50,48], ['牛肉堡|漢堡','個',450,22,40,22],
+  ['冰炫風','杯',390,8,60,13]
+].map(([a,u,k,p,c,f,o=''])=>{
+  const names = a.split('|'), it = {names, label:names[0], unit:u, kcal:k, p, c, f};
+  o.split(' ').filter(Boolean).forEach(t=>{ if (t.startsWith('ml')) it.ml = +t.slice(2); else if (t[0]==='g') it.g = +t.slice(1); else if (t[0]==='s') it.s = t.slice(1); else if (t==='d') it.d = 1; });
+  return it;
+});
+const UNIT_RE = '顆|個|片|杯|份|碗|塊|條|根|串|盒|包|隻|支|罐|瓶|匙|盤|貫|球|粒|張|人份|顆蛋';
+const CN = {零:0,一:1,二:2,兩:2,三:3,四:4,五:5,六:6,七:7,八:8,九:9};
+function cnNum(s){
+  if (s==='半') return .5;
+  if (/^\d/.test(s)) return parseFloat(s);
+  if (s.includes('十')) { const [a,b] = s.split('十'); return (a ? CN[a] : 1)*10 + (b ? (CN[b]||0) : 0); }
+  return CN[s] ?? NaN;
+}
+const SIZE_MULT = {S:.7, M:1, L:1.35, XL:1.6};
+// 甜度倍率（相對於預設半糖，乘在碳水上）：奶類飲料保留牛奶本身的碳水；純糖飲料（茶、果糖）無糖就是 0
+const SUGAR = [['全糖',1.3],['正常糖',1.3],['少糖',.85],['半糖',1],['微糖',.7],['一分糖',.6],['無糖',.4]];
+const SUGAR_PURE = {全糖:2, 正常糖:2, 少糖:1.5, 半糖:1, 微糖:.6, 一分糖:.2, 無糖:0};
+const BRANDS = /(7-?11|7-?eleven|小七|全家|萊爾富|ok超商|麥當勞|漢堡王|肯德基|摩斯|星巴克|路易莎|cama|85度c|五十嵐|清心|可不可|迷客夏)/ig;
+
+function findFood(seg){
+  // 取最長的別名；一樣長時取比較後面的（中文主體通常在最後，例如「蔥鹽燒肉飯糰」→ 飯糰）
+  let best = null, alias = '', pos = -1;
+  FOODS.forEach(it=>it.names.forEach(n=>{
+    const i = seg.lastIndexOf(n); if (i < 0) return;
+    if (n.length > alias.length || (n.length === alias.length && i > pos)) { best = it; alias = n; pos = i; }
+  }));
+  return best ? {it:best, alias} : null;
+}
+function estimateSeg(raw){
+  const seg = raw.replace(BRANDS,'').replace(/[()（）]/g,' ').trim();
+  const hit = findFood(seg.toLowerCase()) || findFood(seg);
+  if (!hit) return {name: raw, kcal:'', p:'', c:'', f:'', ok:false, hint:'⚠ 資料庫找不到，請自己填數字，或在聊天裡問我'};
+  const {it, alias} = hit;
+  let rest = seg.replace(alias,' '), factor = 1, notes = [];
+  const gm = rest.match(/(\d+(?:\.\d+)?)\s*(g|克|公克)(?![a-z])/i), mm = rest.match(/(\d+(?:\.\d+)?)\s*(ml|毫升|cc)/i);
+  rest = rest.replace(/(\d+(?:\.\d+)?)\s*(g|克|公克|ml|毫升|cc)/ig,' ');
+  let sugarMul = 1;
+  if (it.d) { const pure = it.p===0 && it.f===0; for (const [w,m] of SUGAR) if (rest.includes(w)) { sugarMul = pure ? SUGAR_PURE[w] : m; notes.push(w); break; } }
+  rest = rest.replace(/全糖|正常糖|少糖|半糖|微糖|一分糖|無糖|去冰|少冰|微冰|正常冰|熱的|冰的/g,' ');
+  if (gm && it.g) { factor = +gm[1]/it.g; notes.push(`${gm[1]}g`); }
+  else if (mm && it.ml) { factor = +mm[1]/it.ml; notes.push(`${mm[1]}ml`); }
+  else {
+    if (it.s) {
+      const sz = /特大|超大/.test(rest) ? 'XL' : /大/.test(rest) ? 'L' : /中/.test(rest) ? 'M' : /小/.test(rest) ? 'S' : null;
+      if (sz && sz !== it.s) { factor *= SIZE_MULT[sz]/SIZE_MULT[it.s]; notes.push({S:'小',M:'中',L:'大',XL:'特大'}[sz]); }
+    }
+    rest = rest.replace(/特大|超大|大|中|小/g,' ');
+    const xm = rest.match(/[x×*]\s*(\d+(?:\.\d+)?)/i);
+    const qm = xm ? null : rest.match(new RegExp(`(\\d+(?:\\.\\d+)?|[一二兩三四五六七八九十]+|半)\\s*(?:${UNIT_RE})?(半)?`));
+    let q = xm ? +xm[1] : qm ? cnNum(qm[1]) + (qm[2] ? .5 : 0) : 1;
+    if (!(q > 0)) q = 1;
+    if (q !== 1) { factor *= q; notes.push(`×${q}`); }
+  }
+  let kcal = it.kcal*factor, c = it.c*factor;
+  if (sugarMul !== 1) { const nc = c*sugarMul; kcal += (nc - c)*4; c = nc; }
+  return { name: raw.trim(), kcal: Math.round(kcal), p: Math.round(it.p*factor), c: Math.round(c), f: Math.round(it.f*factor), ok:true,
+    hint: `≈ ${it.label}（每${it.unit} ${it.kcal} kcal）${notes.length ? ' · ' + notes.join(' ') : ''}` };
+}
+const MOD_RE = new RegExp(`^(約|大約)?([x×*]?\\s*[\\d.一二兩三四五六七八九十半]+\\s*(g|克|公克|ml|cc|毫升|${UNIT_RE})?半?|(特大|超大|大|中|小)(杯|碗|份|盤)?|.*糖|.*冰)$`, 'i');
+function parseMeal(text){
+  let t = text.trim(), meal = null;
+  const mm = t.match(/^(早餐|午餐|晚餐|點心|宵夜|下午茶)[:：\s]*/);
+  if (mm) { meal = mm[1]==='下午茶' ? '點心' : mm[1]; t = t.slice(mm[0].length); }
+  const segs = [];
+  t.split(/[,，、;；\n+＋]|還有|和|跟|配|加/).forEach(part=>{
+    part.split(/\s+/).filter(Boolean).forEach(tok=>{
+      if (segs.length && !findFood(tok) && MOD_RE.test(tok)) segs[segs.length-1] += ' ' + tok;
+      else segs.push(tok);
+    });
+  });
+  return { meal, items: segs.map(estimateSeg) };
+}
+
+let qItems = [];
+function renderQ(){
+  const box = $('qPreview');
+  if (!qItems.length) { box.innerHTML = ''; return; }
+  const tot = qItems.reduce((a,x)=>({k:a.k+(+x.kcal||0), p:a.p+(+x.p||0)}),{k:0,p:0});
+  box.innerHTML = qItems.map((x,i)=>`
+    <div class="rounded-lg p-2 space-y-1 border" style="border-color:${x.ok?'var(--border)':'var(--warning)'}">
+      <div class="grid grid-cols-12 gap-1 items-center text-xs">
+        <input class="inp col-span-12 sm:col-span-5" data-q="${i}" data-k="name" value="${esc(x.name)}">
+        <input class="inp col-span-3 sm:col-span-2" type="number" data-q="${i}" data-k="kcal" value="${x.kcal}" placeholder="kcal" title="熱量">
+        <input class="inp col-span-3 sm:col-span-1" type="number" data-q="${i}" data-k="p" value="${x.p}" placeholder="P" title="蛋白質">
+        <input class="inp col-span-3 sm:col-span-1" type="number" data-q="${i}" data-k="c" value="${x.c}" placeholder="C" title="碳水">
+        <input class="inp col-span-2 sm:col-span-2" type="number" data-q="${i}" data-k="f" value="${x.f}" placeholder="F" title="脂肪">
+        <button class="muted hover:opacity-70 col-span-1" data-qdel="${i}" title="移除">✕</button>
+      </div>
+      <div class="text-xs muted">${esc(x.hint)}</div>
+    </div>`).join('') + `
+    <div class="flex items-center justify-between gap-2 pt-1">
+      <span class="text-xs muted tabular-nums" id="qTot">合計 ${tot.k} kcal · 蛋白質 ${tot.p} g</span>
+      <button class="btn btn-primary" id="qAdd">全部加入 ${md(sel)}（Enter）</button>
+    </div>`;
+}
+function qAddAll(){
+  const meal = $('qMeal').value; let added = 0;
+  qItems = qItems.filter(x=>{
+    if (!x.name.trim() || !(+x.kcal > 0)) return true;
+    S.entries.push({ id: uid(), date: sel, meal, name: x.name.trim(), kcal: +x.kcal, protein: +x.p||0, carbs: +x.c||0, fat: +x.f||0, source: x.ok ? 'db' : 'manual', createdAt: new Date().toISOString() });
+    added++; return false;
+  });
+  if (!added) return;
+  if (!qItems.length) $('qText').value = '';
+  save(); renderQ();
+}
+$('qMeal').innerHTML = MEALS.map(m=>`<option>${m}</option>`).join('');
+$('qMeal').value = defaultMeal();
+$('qText').addEventListener('input', () => {
+  const v = $('qText').value; if (!v.trim()) { qItems = []; renderQ(); return; }
+  const r = parseMeal(v); if (r.meal) $('qMeal').value = r.meal; qItems = r.items; renderQ();
+});
+$('qText').addEventListener('keydown', e => { if (e.key==='Enter' && !e.isComposing) { e.preventDefault(); qAddAll(); } });
+$('qPreview').addEventListener('input', e => {
+  const t = e.target; if (t.dataset.q == null) return;
+  qItems[+t.dataset.q][t.dataset.k] = t.value;
+  const tot = qItems.reduce((a,x)=>({k:a.k+(+x.kcal||0), p:a.p+(+x.p||0)}),{k:0,p:0});
+  $('qTot').textContent = `合計 ${tot.k} kcal · 蛋白質 ${tot.p} g`;
+});
+$('qPreview').addEventListener('click', e => {
+  const d = e.target.closest('[data-qdel]'); if (d) { qItems.splice(+d.dataset.qdel,1); renderQ(); }
+  if (e.target.id === 'qAdd') qAddAll();
+});
+
+render();
+</script>
+</body>
+</html>
