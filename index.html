@@ -35,6 +35,7 @@
   .inp:focus{outline:2px solid var(--primary);outline-offset:-1px}
   .btn{border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--foreground);white-space:nowrap}
   .btn:hover{background:var(--accent)}
+  .btn:disabled{opacity:.55;cursor:not-allowed}
   .btn-primary{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
   .btn-primary:hover{background:var(--primary);opacity:.9}
   .muted{color:var(--muted-foreground)}
@@ -80,16 +81,21 @@
         <div id="dayTotals" class="space-y-3"></div>
       </div>
 
-      <div class="card p-4 space-y-3">
+      <div class="card p-4 space-y-3" id="qCard">
         <div class="flex flex-wrap items-center justify-between gap-2">
           <h2 class="font-medium">⚡ 打字估算</h2>
-          <span class="text-xs muted">內建台灣常見食物資料庫，離線即時估算</span>
+          <span class="text-xs muted">離線即時查表 · 點「✨ AI 估算」支援任意描述與食物照片</span>
         </div>
-        <div class="flex gap-2 text-xs">
+        <div class="flex flex-wrap sm:flex-nowrap gap-2 text-xs">
           <select id="qMeal" class="inp" style="width:auto"></select>
-          <input id="qText" class="inp" placeholder="例如：大碗牛肉麵 滷蛋2顆 珍奶大杯半糖" autocomplete="off">
+          <input id="qText" class="inp flex-1 min-w-[160px]" placeholder="例如：大碗牛肉麵 滷蛋2顆，或搭配照片補充（飯吃一半）" autocomplete="off">
+          <input id="qPhoto" type="file" accept="image/*" multiple class="hidden">
+          <button type="button" class="btn" id="qPhotoBtn" title="上傳或拍攝食物照片（也可在輸入框直接貼上截圖）">📷 照片</button>
+          <button type="button" class="btn btn-primary" id="qAiBtn">✨ AI 估算</button>
         </div>
-        <p class="text-xs muted">用空格、逗號或「加」分開；可以寫數量（2顆、半碗、x2）、重量（白飯300g、牛奶400ml）、大小（大杯／小碗）、甜度（半糖／無糖）。開頭寫「午餐：」會自動選餐別。</p>
+        <div id="qPhotos" class="hidden flex flex-wrap gap-2 items-center"></div>
+        <div id="qStatus" class="hidden text-xs rounded-lg px-2.5 py-1.5 border"></div>
+        <p class="text-xs muted">打字會先用內建台灣食物庫即時估算（空格／逗號／加分開，可寫 2顆、300g、大杯半糖，「午餐：」自動選餐別）；複雜外食或拍食物照片可點「✨ AI 估算」由 Gemini 拆解並帶入預覽列確認。</p>
         <div id="qPreview" class="space-y-1"></div>
       </div>
 
@@ -151,6 +157,19 @@
           <label class="f">蛋白質 g<input id="sP" type="number" class="inp"></label>
           <label class="f">目標體重 kg<input id="sW" type="number" step="0.1" class="inp"></label>
         </div>
+        <div class="pt-2 border-t space-y-1 text-xs" style="border-color:var(--border)">
+          <label class="f">
+            <span class="flex justify-between items-center">
+              <span>Gemini API Key</span>
+              <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" class="underline hover:opacity-80" style="color:var(--primary)">取得金鑰 ↗</a>
+            </span>
+            <div class="flex gap-1.5">
+              <input id="sApiKey" type="password" class="inp" placeholder="貼上 AIza...（僅存於此瀏覽器 localStorage）" autocomplete="off" spellcheck="false">
+              <button type="button" class="btn" id="toggleKeyBtn">顯示</button>
+            </div>
+          </label>
+          <p class="muted" id="keyInfo"></p>
+        </div>
         <div class="flex justify-between items-center">
           <span class="text-xs muted" id="storeInfo"></span>
           <button class="btn" id="resetBtn">還原成 Claude 原始資料</button>
@@ -180,6 +199,7 @@ const SEED = {
   entries: RAW.map((r,i)=>({id:'claude'+i,date:r[0],meal:r[1],name:r[2],kcal:r[3],protein:r[4],carbs:r[5],fat:r[6],source:'ai'}))
 };
 const KEY = 'bulk-log-v1';
+const AI_KEY_STORAGE = 'bulk-log-gemini-key';
 
 // ---------- utils ----------
 const $ = id => document.getElementById(id);
@@ -397,6 +417,7 @@ function render(){
   $('banner').classList.toggle('hidden', canStore);
   $('storeInfo').textContent = canStore ? '✓ 自動儲存在這個瀏覽器' : '⚠ 無法自動儲存';
   renderStats(); renderDay(); renderEntries(); renderWeight(); renderK(); renderForm();
+  if (typeof renderQ === 'function') renderQ();
 }
 
 // ---------- events ----------
@@ -447,6 +468,32 @@ $('wList').onclick = ev => { const b = ev.target.closest('[data-wdel]'); if (b) 
 [['sK','kcalTarget'],['sP','proteinTarget'],['sW','goalWeight']].forEach(([id,k])=>{
   $(id).addEventListener('change', e => { const v = +e.target.value; if (v>0) { S.settings[k] = v; save(); } });
 });
+let memApiKey = '';
+function getApiKey(){
+  if (canStore) { try { return (localStorage.getItem(AI_KEY_STORAGE) || '').trim(); } catch(e) {} }
+  return memApiKey;
+}
+function updateKeyInfo(){
+  const has = !!getApiKey();
+  $('keyInfo').textContent = has
+    ? (canStore ? '✓ 金鑰已存於本機 localStorage（匯出 JSON 時不會包含）' : '⚠ 目前僅暫存於記憶體，關閉頁面後需重貼')
+    : '尚未設定金鑰；設定後即可使用「✨ AI 估算」';
+}
+$('sApiKey').value = getApiKey();
+updateKeyInfo();
+$('sApiKey').addEventListener('input', e => {
+  const v = e.target.value.trim();
+  memApiKey = v;
+  if (canStore) {
+    try { if (v) localStorage.setItem(AI_KEY_STORAGE, v); else localStorage.removeItem(AI_KEY_STORAGE); } catch(err) {}
+  }
+  updateKeyInfo();
+});
+$('toggleKeyBtn').onclick = () => {
+  const inp = $('sApiKey'), show = inp.type === 'password';
+  inp.type = show ? 'text' : 'password';
+  $('toggleKeyBtn').textContent = show ? '隱藏' : '顯示';
+};
 $('resetBtn').onclick = e => confirm2(e.currentTarget, () => {
   S = clone(SEED); applyInbox(); $('sK').value = S.settings.kcalTarget; $('sP').value = S.settings.proteinTarget; $('sW').value = S.settings.goalWeight; clearForm(); save();
 });
@@ -587,7 +634,7 @@ function findFood(seg){
 function estimateSeg(raw){
   const seg = raw.replace(BRANDS,'').replace(/[()（）]/g,' ').trim();
   const hit = findFood(seg.toLowerCase()) || findFood(seg);
-  if (!hit) return {name: raw, kcal:'', p:'', c:'', f:'', ok:false, hint:'⚠ 資料庫找不到，請自己填數字，或在聊天裡問我'};
+  if (!hit) return {name: raw, kcal:'', p:'', c:'', f:'', ok:false, hint:'⚠ 內建食物庫找不到，可點上方「✨ AI 估算」或手動填數字'};
   const {it, alias} = hit;
   let rest = seg.replace(alias,' '), factor = 1, notes = [];
   const gm = rest.match(/(\d+(?:\.\d+)?)\s*(g|克|公克)(?![a-z])/i), mm = rest.match(/(\d+(?:\.\d+)?)\s*(ml|毫升|cc)/i);
@@ -630,50 +677,324 @@ function parseMeal(text){
 }
 
 let qItems = [];
+let qPhotosList = [];
+let aiBusy = false;
+
+function setQStatus(msg, kind = 'info'){
+  const el = $('qStatus');
+  if (!msg) { el.classList.add('hidden'); el.textContent = ''; return; }
+  const color = kind === 'err' ? 'var(--error)' : kind === 'warn' ? 'var(--warning)' : kind === 'ok' ? 'var(--success)' : 'var(--primary)';
+  el.style.borderColor = color;
+  el.style.color = 'var(--foreground)';
+  el.textContent = msg;
+  el.classList.remove('hidden');
+}
+
+function renderPhotos(){
+  const box = $('qPhotos');
+  if (!qPhotosList.length) { box.innerHTML = ''; box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.innerHTML = qPhotosList.map((p, i) => `
+    <div class="relative rounded-lg overflow-hidden border" style="width:56px;height:56px;border-color:var(--border)">
+      <img src="${p.previewUrl}" alt="${esc(p.name)}" class="w-full h-full object-cover">
+      <button type="button" data-pdel="${i}" title="移除照片" class="absolute top-0 right-0 px-1 text-[11px] leading-4 text-white" style="background:rgba(0,0,0,.65)">✕</button>
+    </div>`).join('') + (qPhotosList.length > 1 ? `<button type="button" class="btn" id="clearPhotosBtn">清除全部照片</button>` : '');
+}
+function clearPhotos(){ qPhotosList = []; $('qPhoto').value = ''; renderPhotos(); }
+
+function fileToImagePart(file){
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const MAX = 1280;
+        let w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+        if (w > MAX || h > MAX) {
+          if (w >= h) { h = Math.round(h * MAX / w); w = MAX; }
+          else { w = Math.round(w * MAX / h); h = MAX; }
+        }
+        const cv = document.createElement('canvas');
+        cv.width = Math.max(1, w); cv.height = Math.max(1, h);
+        const ctx = cv.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, cv.width, cv.height);
+        ctx.drawImage(img, 0, 0, cv.width, cv.height);
+        const dataUrl = cv.toDataURL('image/jpeg', 0.84);
+        URL.revokeObjectURL(url);
+        resolve({ name: file.name || 'photo.jpg', mimeType: 'image/jpeg', base64: dataUrl.split(',')[1], previewUrl: dataUrl });
+      } catch (err) {
+        URL.revokeObjectURL(url);
+        reject(err);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
+        reject(new Error('瀏覽器無法解碼此圖片格式，請改傳 JPG、PNG 或 WebP 圖片'));
+        return;
+      }
+      const fr = new FileReader();
+      fr.onload = () => {
+        const dataUrl = String(fr.result || '');
+        const base64 = dataUrl.split(',')[1] || '';
+        resolve({ name: file.name || 'photo', mimeType: file.type, base64, previewUrl: dataUrl });
+      };
+      fr.onerror = () => reject(new Error('讀取圖片失敗'));
+      fr.readAsDataURL(file);
+    };
+    img.src = url;
+  });
+}
+
+async function addPhotoFiles(files){
+  const list = [...files].filter(f => f && (f.type.startsWith('image/') || /\.(jpe?g|png|webp|gif|heic|heif)$/i.test(f.name || '')));
+  if (!list.length) return;
+  try {
+    for (const f of list) {
+      if (qPhotosList.length >= 4) { setQStatus('⚠ 單次最多附上 4 張食物照片', 'warn'); break; }
+      qPhotosList.push(await fileToImagePart(f));
+    }
+    renderPhotos();
+    if (!qItems.some(x => x.source === 'ai')) { qItems = []; renderQ(); }
+    setQStatus(`📷 已附上 ${qPhotosList.length} 張照片，可補充文字說明（如：飯吃一半），再點「✨ AI 估算」`, 'info');
+  } catch (err) {
+    setQStatus(`❌ ${err.message || '處理照片失敗'}`, 'err');
+  }
+}
+
+function qSummaryText(){
+  const tot = qItems.reduce((a,x)=>({k:a.k+(+x.kcal||0), p:a.p+(+x.p||0), c:a.c+(+x.c||0), f:a.f+(+x.f||0)}),{k:0,p:0,c:0,f:0});
+  return `合計 ${tot.k} kcal · P ${tot.p} g · C ${tot.c} g · F ${tot.f} g`;
+}
+
 function renderQ(){
   const box = $('qPreview');
   if (!qItems.length) { box.innerHTML = ''; return; }
-  const tot = qItems.reduce((a,x)=>({k:a.k+(+x.kcal||0), p:a.p+(+x.p||0)}),{k:0,p:0});
-  box.innerHTML = qItems.map((x,i)=>`
+  box.innerHTML = `
+    <div class="hidden sm:grid grid-cols-12 gap-1 px-2 text-[11px] muted">
+      <span class="col-span-5">餐點名稱</span><span class="col-span-2">熱量 kcal</span><span class="col-span-1">蛋白 g</span><span class="col-span-1">碳水 g</span><span class="col-span-2">脂肪 g</span><span></span>
+    </div>` + qItems.map((x,i)=>`
     <div class="rounded-lg p-2 space-y-1 border" style="border-color:${x.ok?'var(--border)':'var(--warning)'}">
       <div class="grid grid-cols-12 gap-1 items-center text-xs">
-        <input class="inp col-span-12 sm:col-span-5" data-q="${i}" data-k="name" value="${esc(x.name)}">
-        <input class="inp col-span-3 sm:col-span-2" type="number" data-q="${i}" data-k="kcal" value="${x.kcal}" placeholder="kcal" title="熱量">
-        <input class="inp col-span-3 sm:col-span-1" type="number" data-q="${i}" data-k="p" value="${x.p}" placeholder="P" title="蛋白質">
-        <input class="inp col-span-3 sm:col-span-1" type="number" data-q="${i}" data-k="c" value="${x.c}" placeholder="C" title="碳水">
-        <input class="inp col-span-2 sm:col-span-2" type="number" data-q="${i}" data-k="f" value="${x.f}" placeholder="F" title="脂肪">
-        <button class="muted hover:opacity-70 col-span-1" data-qdel="${i}" title="移除">✕</button>
+        <input class="inp col-span-12 sm:col-span-5" data-q="${i}" data-k="name" value="${esc(x.name)}" placeholder="餐點名稱">
+        <input class="inp col-span-3 sm:col-span-2" type="number" min="0" data-q="${i}" data-k="kcal" value="${x.kcal}" placeholder="kcal" title="熱量 (kcal)">
+        <input class="inp col-span-3 sm:col-span-1" type="number" min="0" data-q="${i}" data-k="p" value="${x.p}" placeholder="P" title="蛋白質 (g)">
+        <input class="inp col-span-3 sm:col-span-1" type="number" min="0" data-q="${i}" data-k="c" value="${x.c}" placeholder="C" title="碳水 (g)">
+        <input class="inp col-span-2 sm:col-span-2" type="number" min="0" data-q="${i}" data-k="f" value="${x.f}" placeholder="F" title="脂肪 (g)">
+        <button type="button" class="muted hover:opacity-70 col-span-1" data-qdel="${i}" title="移除">✕</button>
       </div>
-      <div class="text-xs muted">${esc(x.hint)}</div>
+      <div class="text-xs muted">${esc(x.hint || '')}</div>
     </div>`).join('') + `
-    <div class="flex items-center justify-between gap-2 pt-1">
-      <span class="text-xs muted tabular-nums" id="qTot">合計 ${tot.k} kcal · 蛋白質 ${tot.p} g</span>
-      <button class="btn btn-primary" id="qAdd">全部加入 ${md(sel)}（Enter）</button>
+    <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+      <span class="text-xs muted tabular-nums" id="qTot">${qSummaryText()}</span>
+      <button type="button" class="btn btn-primary" id="qAdd">全部加入 ${md(sel)}（Enter）</button>
     </div>`;
 }
+
 function qAddAll(){
   const meal = $('qMeal').value; let added = 0;
   qItems = qItems.filter(x=>{
-    if (!x.name.trim() || !(+x.kcal > 0)) return true;
-    S.entries.push({ id: uid(), date: sel, meal, name: x.name.trim(), kcal: +x.kcal, protein: +x.p||0, carbs: +x.c||0, fat: +x.f||0, source: x.ok ? 'db' : 'manual', createdAt: new Date().toISOString() });
+    if (!x.name.trim() || String(x.kcal).trim() === '' || !(+x.kcal >= 0)) return true;
+    S.entries.push({
+      id: uid(), date: sel, meal, name: x.name.trim(),
+      kcal: Math.round(+x.kcal)||0, protein: Math.round(+x.p)||0, carbs: Math.round(+x.c)||0, fat: Math.round(+x.f)||0,
+      source: x.source || (x.ok ? 'db' : 'manual'), createdAt: new Date().toISOString()
+    });
     added++; return false;
   });
   if (!added) return;
-  if (!qItems.length) $('qText').value = '';
+  if (!qItems.length) { $('qText').value = ''; clearPhotos(); setQStatus(''); }
   save(); renderQ();
 }
+
+// ===== Gemini AI 估算（Interactions API v1）=====
+const GEMINI_MODEL = 'gemini-4-hydrogen';
+const GEMINI_SCHEMA = {
+  type: 'object',
+  properties: {
+    meal: {
+      type: 'string',
+      enum: ['', '早餐', '午餐', '點心', '晚餐', '宵夜'],
+      description: '若使用者明確提及餐別則填入（下午茶歸類為點心），否則填空字串'
+    },
+    items: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: '餐點名稱與估算份量（繁體中文，例如：炸雞腿便當（白飯約200g、含3樣配菜））' },
+          kcal: { type: 'integer', minimum: 0, description: '熱量 (kcal)' },
+          protein: { type: 'integer', minimum: 0, description: '蛋白質 (g)' },
+          carbs: { type: 'integer', minimum: 0, description: '碳水化合物 (g)' },
+          fat: { type: 'integer', minimum: 0, description: '脂肪 (g)' },
+          hint: { type: 'string', description: '簡短估算依據（份量假設、克數或烹調方式）' }
+        },
+        required: ['name', 'kcal', 'protein', 'carbs', 'fat', 'hint'],
+        additionalProperties: false
+      }
+    }
+  },
+  required: ['meal', 'items'],
+  additionalProperties: false
+};
+
+const GEMINI_SYS_PROMPT = [
+  '你是熟悉台灣外食、超商食品、手搖飲與家常菜的專業營養師助手，協助增重使用者記錄飲食。',
+  '請根據使用者的文字描述及／或上傳的食物照片，將這餐拆解成清楚的餐點項目（例如主餐、單點配菜、湯品、飲料各自一筆；若是完整便當或套餐，可依辨識清晰度拆開或合併並在名稱括號標註內容與份量）。',
+  '估算原則：',
+  '1. name 請用繁體中文並標註估算份量（如「大碗紅燒牛肉麵」、「滷蛋 2顆」、「鮭魚握壽司 4貫」）。',
+  '2. kcal、protein、carbs、fat 皆為四捨五入後的非負整數，需納入台灣常見烹調用油、醬料與飲料甜度；kcal 應與 protein*4 + carbs*4 + fat*9 合理一致。',
+  '3. 若同時提供照片與文字，請以文字作為份量修正或補充說明（例如「飯吃一半」、「去皮」、「無糖」）。',
+  '4. hint 請用一句簡短中文說明份量與熱量估算依據。'
+].join('\n');
+
+function extractInteractionText(data){
+  if (typeof data?.output_text === 'string' && data.output_text.trim()) return data.output_text.trim();
+  const steps = Array.isArray(data?.steps) ? data.steps : [];
+  const chunks = [];
+  for (let i = steps.length - 1; i >= 0; i--) {
+    const st = steps[i];
+    if (st?.type === 'model_output' && Array.isArray(st.content)) {
+      const t = st.content
+        .filter(c => c && (c.type === 'text' || typeof c.text === 'string'))
+        .map(c => c.text || '')
+        .join('');
+      chunks.unshift(t);
+    } else if (chunks.length > 0) {
+      break;
+    }
+  }
+  return chunks.join('').trim();
+}
+
+async function runAiEstimate(){
+  if (aiBusy) return;
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    setQStatus('⚠ 請先在「目標設定 → Gemini API Key」貼上你的金鑰（僅存於此瀏覽器）', 'warn');
+    $('sApiKey').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('sApiKey').focus();
+    return;
+  }
+  const text = $('qText').value.trim();
+  if (!text && !qPhotosList.length) {
+    setQStatus('⚠ 請先輸入餐點描述，或點「📷 照片」上傳食物照片', 'warn');
+    $('qText').focus();
+    return;
+  }
+
+  aiBusy = true;
+  const btn = $('qAiBtn');
+  btn.disabled = true;
+  btn.textContent = '⏳ 估算中…';
+  setQStatus('✨ Gemini 正在分析餐點熱量與三大營養素…', 'info');
+
+  try {
+    const input = [];
+    if (qPhotosList.length && text) {
+      input.push({ type: 'text', text: `請根據附上的食物照片與以下補充說明，辨識並估算每項餐點的熱量與營養素：\n補充說明：${text}` });
+    } else if (qPhotosList.length) {
+      input.push({ type: 'text', text: '請根據附上的食物照片，辨識所有餐點與飲品，並估算每項餐點的份量、熱量與三大營養素。' });
+    } else {
+      input.push({ type: 'text', text: `請拆解並估算以下飲食內容中每一項餐點的熱量與三大營養素：\n${text}` });
+    }
+    qPhotosList.forEach(p => input.push({ type: 'image', data: p.base64, mime_type: p.mimeType }));
+
+    const res = await fetch('https://generativelanguage.googleapis.com/v1/interactions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-goog-api-key': apiKey
+      },
+      body: JSON.stringify({
+        model: GEMINI_MODEL,
+        store: false,
+        system_instruction: GEMINI_SYS_PROMPT,
+        input,
+        response_format: {
+          type: 'text',
+          mime_type: 'application/json',
+          schema: GEMINI_SCHEMA
+        }
+      })
+    });
+
+    const data = await res.json().catch(() => null);
+    if (!res.ok) {
+      const detail = data?.error?.message || `HTTP ${res.status}`;
+      if (res.status === 400 || res.status === 401 || res.status === 403) {
+        throw new Error(`API Key 無效或請求被拒（${res.status}）：${detail}`);
+      }
+      if (res.status === 429) {
+        throw new Error(`API 呼叫額度達上限（429），請稍後再試：${detail}`);
+      }
+      throw new Error(`Gemini API 錯誤（${res.status}）：${detail}`);
+    }
+
+    const rawText = extractInteractionText(data).replace(/^```(?:json)?\s*|\s*```$/gi, '');
+    if (!rawText) throw new Error('AI 未回傳內容，請再試一次');
+    const parsed = JSON.parse(rawText);
+    const items = Array.isArray(parsed?.items) ? parsed.items : [];
+    if (!items.length) {
+      setQStatus('⚠ AI 未能從輸入中辨識出餐點項目，請補充更具體的描述或換一張清晰照片', 'warn');
+      return;
+    }
+    if (parsed.meal && MEALS.includes(parsed.meal)) $('qMeal').value = parsed.meal;
+    qItems = items.map(it => ({
+      name: String(it.name || '').trim() || '餐點',
+      kcal: Math.max(0, Math.round(+it.kcal || 0)),
+      p: Math.max(0, Math.round(+it.protein || 0)),
+      c: Math.max(0, Math.round(+it.carbs || 0)),
+      f: Math.max(0, Math.round(+it.fat || 0)),
+      ok: true,
+      source: 'ai',
+      hint: '✨ AI 估算' + (it.hint ? ` · ${it.hint}` : '')
+    }));
+    renderQ();
+    setQStatus(`✓ AI 已估算 ${qItems.length} 項餐點，可在下方預覽列微調數值後點「全部加入」`, 'ok');
+  } catch (err) {
+    setQStatus(`❌ ${err.message || 'AI 估算失敗，請檢查網路連線或 API Key'}`, 'err');
+  } finally {
+    aiBusy = false;
+    btn.disabled = false;
+    btn.textContent = '✨ AI 估算';
+  }
+}
+
 $('qMeal').innerHTML = MEALS.map(m=>`<option>${m}</option>`).join('');
 $('qMeal').value = defaultMeal();
-$('qText').addEventListener('input', () => {
-  const v = $('qText').value; if (!v.trim()) { qItems = []; renderQ(); return; }
-  const r = parseMeal(v); if (r.meal) $('qMeal').value = r.meal; qItems = r.items; renderQ();
+$('qPhotoBtn').onclick = () => $('qPhoto').click();
+$('qPhoto').onchange = e => { if (e.target.files?.length) addPhotoFiles(e.target.files); e.target.value = ''; };
+$('qPhotos').onclick = e => {
+  const del = e.target.closest('[data-pdel]');
+  if (del) { qPhotosList.splice(+del.dataset.pdel, 1); renderPhotos(); if (!qPhotosList.length && !$('qText').value.trim()) setQStatus(''); }
+  if (e.target.id === 'clearPhotosBtn') { clearPhotos(); if (!$('qText').value.trim()) setQStatus(''); }
+};
+$('qCard').addEventListener('paste', e => {
+  const files = [...(e.clipboardData?.items || [])].filter(it => it.type.startsWith('image/')).map(it => it.getAsFile()).filter(Boolean);
+  if (files.length) { e.preventDefault(); addPhotoFiles(files); }
 });
-$('qText').addEventListener('keydown', e => { if (e.key==='Enter' && !e.isComposing) { e.preventDefault(); qAddAll(); } });
+$('qAiBtn').onclick = runAiEstimate;
+$('qText').addEventListener('input', () => {
+  const v = $('qText').value;
+  const mm = v.trim().match(/^(早餐|午餐|晚餐|點心|宵夜|下午茶)[:：\s]*/);
+  if (mm) $('qMeal').value = mm[1] === '下午茶' ? '點心' : mm[1];
+  if (qPhotosList.length) return;
+  if (!v.trim()) { qItems = []; setQStatus(''); renderQ(); return; }
+  const r = parseMeal(v); if (r.meal) $('qMeal').value = r.meal; qItems = r.items; setQStatus(''); renderQ();
+});
+$('qText').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.isComposing) {
+    e.preventDefault();
+    if (qPhotosList.length && !qItems.length) runAiEstimate();
+    else qAddAll();
+  }
+});
 $('qPreview').addEventListener('input', e => {
   const t = e.target; if (t.dataset.q == null) return;
   qItems[+t.dataset.q][t.dataset.k] = t.value;
-  const tot = qItems.reduce((a,x)=>({k:a.k+(+x.kcal||0), p:a.p+(+x.p||0)}),{k:0,p:0});
-  $('qTot').textContent = `合計 ${tot.k} kcal · 蛋白質 ${tot.p} g`;
+  $('qTot').textContent = qSummaryText();
 });
 $('qPreview').addEventListener('click', e => {
   const d = e.target.closest('[data-qdel]'); if (d) { qItems.splice(+d.dataset.qdel,1); renderQ(); }
